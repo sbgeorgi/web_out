@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Biosphere - Relative Orientation</title>
+  <style>
+    :root { --bg: #05070a; --ui-bg: rgba(20, 25, 40, 0.95); --accent: #ff0055; --val: #00ff88; --text: #f0f0f0; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; overflow: hidden; }
+    #app { position: fixed; inset: 0; }
+    
+    #overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 100; transition: opacity 0.3s;
+    }
+    #startBtn {
+      padding: 15px 50px; font-size: 18px; font-weight: bold; letter-spacing: 2px;
+      background: transparent; color: var(--accent); border: 2px solid var(--accent); 
+      cursor: pointer; text-transform: uppercase;
+    }
+    #startBtn:hover { background: var(--accent); color: #fff; box-shadow: 0 0 30px var(--accent); }
+
+    /* TELEMETRY PANEL */
+    #hud {
+      position: fixed; top: 20px; left: 20px;
+      background: var(--ui-bg); padding: 20px; border-radius: 4px;
+      border-left: 3px solid var(--accent); pointer-events: none; width: 340px;
+    }
+    .label { color: #888; font-size: 11px; margin-bottom: 2px; }
+    .value { color: var(--val); font-size: 14px; font-weight: bold; margin-bottom: 10px; display:block;}
+    .status-row { display:flex; justify-content:space-between; font-size:12px; margin-bottom:4px; color:#fff;}
+
+    /* INPUT VISUALIZER */
+    #input-vis {
+        position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+        background: rgba(0,0,0,0.6); padding: 15px; border-radius: 12px;
+        display: flex; gap: 25px; align-items: flex-end; pointer-events: none;
+        border: 1px solid rgba(255,255,255,0.1);
+    }
+    .key-group { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+    .key-row { display: flex; gap: 5px; }
+    .k-box {
+        width: 40px; height: 40px; border: 2px solid #555; border-radius: 6px;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: bold; font-size: 14px; color: #888; background: rgba(0,0,0,0.3);
+        transition: all 0.05s;
+    }
+    .k-wide { width: 140px; } 
+    .k-box.active {
+        border-color: var(--val); color: #fff; background: var(--val);
+        box-shadow: 0 0 15px var(--val); transform: scale(1.1); text-shadow: 0 1px 2px #000;
+    }
+    
+    #controls-hint {
+        position: fixed; bottom: 20px; right: 20px; text-align: right;
+        color: #888; font-size: 11px; line-height: 1.8; pointer-events: none;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+
+<body>
+  <div id="app"></div>
+
+  <div id="overlay">
+    <h1 style="font-weight: 300; letter-spacing: 4px; margin-bottom: 10px;">RELATIVE<span style="font-weight:700; color:var(--accent)">MOTION</span></h1>
+    <button id="startBtn">START SYSTEM</button>
+  </div>
+
+  <!-- LIVE DATA HUD -->
+  <div id="hud">
+    <h2 style="color:#fff; margin:0 0 15px 0; font-size:16px; border-bottom:1px solid #444; padding-bottom:5px;">LIVE TELEMETRY</h2>
+    
+    <div class="label">CAMERA POSITION</div>
+    <span id="t-pos" class="value">0.00, 0.00, 0.00</span>
+
+    <div class="label">LOOK VECTOR</div>
+    <span id="t-look" class="value">0.00, 0.00, 0.00</span>
+
+    <div style="height:10px;"></div>
+    
+    <div class="status-row"><span>VERTICAL LOCK (V):</span> <span id="st-lock" style="color:#888">UNLOCKED</span></div>
+    <div class="status-row"><span>HEIGHT LOCK (H):</span> <span id="st-hlock" style="color:#888">UNLOCKED</span></div>
+    <div class="status-row"><span>WAYPOINTS:</span> <span id="st-pts">1</span></div>
+  </div>
+
+  <!-- VISUALIZER -->
+  <div id="input-vis">
+    <div class="key-group">
+        <div id="kv-w" class="k-box">W</div>
+        <div class="key-row">
+            <div id="kv-a" class="k-box">A</div>
+            <div id="kv-s" class="k-box">S</div>
+            <div id="kv-d" class="k-box">D</div>
+        </div>
+    </div>
+    <div class="key-group" style="justify-content: flex-end;">
+         <div id="kv-space" class="k-box k-wide">SPACE (POINT)</div>
+    </div>
+    <div class="key-group">
+        <div id="kv-up" class="k-box">↑</div> 
+        <div class="key-row">
+            <div id="kv-left" class="k-box">←</div>
+            <div id="kv-down" class="k-box">↓</div>
+            <div id="kv-right" class="k-box">→</div>
+        </div>
+    </div>
+  </div>
+
+  <div id="controls-hint">
+    <b style="color:#fff">W/UP</b> = MOVE IN LOOK DIRECTION<br>
+    PRESS <b style="color:var(--accent)">P</b> TO EXPORT
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+    import { load } from 'https://cdn.jsdelivr.net/npm/@loaders.gl/core@4.3.3/+esm';
+    import { LASLoader } from 'https://cdn.jsdelivr.net/npm/@loaders.gl/las@4.3.3/+esm';
+
+    // ⚙️ STARTING STATE
+    const START_POS = new THREE.Vector3(24.30, -3.32, -5.97);
+    const START_LOOK = new THREE.Vector3(24.30, -3.32, -15.0);
+
+    const SPEEDS = {
+        move: 2.5,    
+        strafe: 2.0,  
+        turn: 1.2,
+        microTurn: 0.2, 
+        turbo: 8.0    
+    };
+
+    const FILE_URL = './cloud_web.laz';
+    const META_URL = './cloud_web.meta.json';
+
+    // --- VARIABLES ---
+    let moveF=false, moveB=false, moveL=false, moveR=false;
+    let turnLeft=false, turnRight=false;
+    let isSprint=false, isMicro=false;
+    
+    // Locks
+    let pitchLocked = false;
+    let lockedPitchAngle = 0; 
+    let heightLocked = false;
+
+    let waypoints = [];
+    let pathLineMesh = null;
+    let prevTime = performance.now();
+    let centerOffset = new THREE.Vector3();
+
+    // DOM Elements
+    const elPos = document.getElementById('t-pos');
+    const elLook = document.getElementById('t-look');
+    const elLock = document.getElementById('st-lock');
+    const elHLock = document.getElementById('st-hlock');
+    const elPts = document.getElementById('st-pts');
+
+    // SCENE
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x05070a);
+    scene.fog = new THREE.FogExp2(0x05070a, 0.02);
+
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.getElementById('app').appendChild(renderer.domElement);
+
+    const controls = new PointerLockControls(camera, document.body);
+    
+    document.getElementById('startBtn').addEventListener('click', () => controls.lock());
+    controls.addEventListener('lock', () => document.getElementById('overlay').style.opacity = '0');
+    controls.addEventListener('unlock', () => document.getElementById('overlay').style.opacity = '1');
+
+    // Init
+    camera.position.copy(START_POS);
+    camera.lookAt(START_LOOK);
+    waypoints.push(START_POS.clone());
+    updatePathVisuals();
+
+    // --- VISUALIZER ---
+    function highlightKey(id, active) {
+        const el = document.getElementById(id);
+        if(el) {
+            if(active) el.classList.add('active');
+            else el.classList.remove('active');
+        }
+    }
+
+    // --- INPUTS ---
+    const onKey = (e, active) => {
+        // Visualizer
+        if(e.code === 'KeyW') highlightKey('kv-w', active);
+        if(e.code === 'KeyA') highlightKey('kv-a', active);
+        if(e.code === 'KeyS') highlightKey('kv-s', active);
+        if(e.code === 'KeyD') highlightKey('kv-d', active);
+        if(e.code === 'Space') highlightKey('kv-space', active);
+        
+        if(e.code === 'ArrowUp') highlightKey('kv-up', active);
+        if(e.code === 'ArrowDown') highlightKey('kv-down', active);
+        if(e.code === 'ArrowLeft') highlightKey('kv-left', active);
+        if(e.code === 'ArrowRight') highlightKey('kv-right', active);
+
+        switch(e.code) {
+            case 'KeyW': 
+            case 'ArrowUp': 
+                moveF = active; 
+                break;
+            
+            case 'KeyS': 
+            case 'ArrowDown':
+                moveB = active; 
+                break;
+
+            case 'KeyA': moveL = active; break; 
+            case 'KeyD': moveR = active; break; 
+            
+            case 'ArrowLeft': turnLeft = active; break; 
+            case 'ArrowRight': turnRight = active; break; 
+
+            case 'ShiftLeft': isSprint = active; break;
+            case 'AltLeft': isMicro = active; e.preventDefault(); break;
+
+            case 'KeyV':
+                if(active) togglePitchLock();
+                break;
+            case 'KeyH':
+                if(active) toggleHeightLock();
+                break;
+            case 'Space': 
+                if(active) addWaypoint(); 
+                break;
+            case 'KeyP':
+                if(active) exportData();
+                break;
+        }
+    };
+    
+    document.addEventListener('keydown', (e) => onKey(e, true));
+    document.addEventListener('keyup', (e) => onKey(e, false));
+
+    // --- LOGIC ---
+    function togglePitchLock() {
+        pitchLocked = !pitchLocked;
+        if(pitchLocked) {
+            lockedPitchAngle = camera.rotation.x;
+            elLock.innerText = "LOCKED (FROZEN)";
+            elLock.style.color = "#ff0055";
+        } else {
+            elLock.innerText = "UNLOCKED (FREE)";
+            elLock.style.color = "#888";
+        }
+    }
+
+    function toggleHeightLock() {
+        heightLocked = !heightLocked;
+        if(heightLocked) {
+            elHLock.innerText = "LOCKED (FLAT)";
+            elHLock.style.color = "#ff0055";
+        } else {
+            elHLock.innerText = "UNLOCKED (3D)";
+            elHLock.style.color = "#888";
+        }
+    }
+
+    function addWaypoint() {
+        waypoints.push(camera.position.clone());
+        updatePathVisuals();
+        elPts.innerText = waypoints.length;
+        elPts.style.color = "#00ff88";
+        setTimeout(() => elPts.style.color = "#fff", 200);
+    }
+
+    function updatePathVisuals() {
+        if(waypoints.length < 2) return;
+        if(pathLineMesh) scene.remove(pathLineMesh);
+        const geom = new THREE.BufferGeometry().setFromPoints(waypoints);
+        const mat = new THREE.LineBasicMaterial({ color: 0x00ff88, linewidth: 2 });
+        pathLineMesh = new THREE.Line(geom, mat);
+        scene.add(pathLineMesh);
+    }
+
+    function exportData() {
+        // Calculate the "Look At" target (10 meters in front of camera)
+        const dir = new THREE.Vector3();
+        camera.getWorldDirection(dir);
+        const target = new THREE.Vector3().copy(camera.position).add(dir.multiplyScalar(10));
+
+        let output = `// ===================================\n`;
+        output += `// 1. SETTINGS:\n`;
+        output += `startPos: new THREE.Vector3(${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}),\n`;
+        output += `startLookAt: new THREE.Vector3(${target.x.toFixed(2)}, ${target.y.toFixed(2)}, ${target.z.toFixed(2)}),\n`;
+        output += `\n// 2. SAVED_PATH:\n`;
+        output += `const SAVED_PATH = [\n`;
+        waypoints.forEach(v => {
+            output += `    new THREE.Vector3(${v.x.toFixed(2)}, ${v.y.toFixed(2)}, ${v.z.toFixed(2)}),\n`;
+        });
+        output += "];\n// ===================================";
+        
+        console.log("%c EXPORT DATA GENERATED", "background:#ff0055; color:#fff; font-size:16px; padding:5px;");
+        console.log(output);
+        alert("Configuration copied to Console (F12).");
+    }
+
+    // --- LOADER ---
+    async function init() {
+        try {
+            try {
+                const mRes = await fetch(META_URL);
+                const meta = await mRes.json();
+                if(meta.origin) centerOffset.set(meta.origin[0], meta.origin[1], meta.origin[2]);
+            } catch(e){}
+
+            const data = await load(FILE_URL, LASLoader);
+            const posAttr = data.attributes['POSITION']?.value || data.attributes['POSITION0']?.value;
+            const colAttr = data.attributes['COLOR_0']?.value || data.attributes['RGB']?.value;
+            const intAttr = data.attributes['intensity']?.value;
+
+            const positions = new Float32Array(posAttr.length);
+            for(let i=0; i<posAttr.length; i+=3) {
+                positions[i] = posAttr[i] - centerOffset.x;
+                positions[i+1] = posAttr[i+1] - centerOffset.y;
+                positions[i+2] = posAttr[i+2] - centerOffset.z;
+            }
+            
+            let colors = null;
+            if(colAttr) {
+                colors = new Float32Array(posAttr.length);
+                const maxVal = (colAttr instanceof Uint8Array) ? 255 : (colAttr instanceof Uint16Array) ? 65535 : 1;
+                const stride = (colAttr.length === posAttr.length) ? 3 : 4;
+                for(let i=0, j=0; i<colors.length; i+=3, j+=stride) {
+                    colors[i]   = colAttr[j] / maxVal;
+                    colors[i+1] = colAttr[j+1] / maxVal;
+                    colors[i+2] = colAttr[j+2] / maxVal;
+                }
+            } else if(intAttr) {
+                 colors = new Float32Array(posAttr.length);
+                 for(let i=0; i<posAttr.length; i+=3) {
+                    const v = Math.min(intAttr[i/3]/65535*5, 1);
+                    colors[i]=v; colors[i+1]=v; colors[i+2]=v;
+                 }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            if(colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const mat = new THREE.PointsMaterial({ size: 0.1, vertexColors: !!colors, color: 0xffffff });
+            scene.add(new THREE.Points(geometry, mat));
+
+        } catch(e) { console.error(e); }
+    }
+
+    // --- ANIMATION LOOP ---
+    function animate() {
+        requestAnimationFrame(animate);
+        const time = performance.now();
+        const delta = (time - prevTime) / 1000;
+        prevTime = time;
+
+        if (controls.isLocked) {
+            
+            // 1. UPDATE TELEMETRY UI
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            const lookTarget = new THREE.Vector3().copy(camera.position).add(dir.multiplyScalar(10));
+            
+            elPos.innerText = `${camera.position.x.toFixed(2)}, ${camera.position.y.toFixed(2)}, ${camera.position.z.toFixed(2)}`;
+            elLook.innerText = `${lookTarget.x.toFixed(2)}, ${lookTarget.y.toFixed(2)}, ${lookTarget.z.toFixed(2)}`;
+
+            // 2. ENFORCE PITCH LOCK
+            if(pitchLocked) {
+                camera.rotation.x = lockedPitchAngle;
+            }
+
+            // 3. MOVEMENTS
+            let spdMove = SPEEDS.move;
+            let spdStrafe = SPEEDS.strafe;
+            let spdTurn = isMicro ? SPEEDS.microTurn : SPEEDS.turn; 
+            
+            if (isSprint) { spdMove = SPEEDS.turbo; spdStrafe = SPEEDS.turbo; }
+
+            const moveDist = spdMove * delta;
+            const strafeDist = spdStrafe * delta;
+
+            // Rotation (Camera Y)
+            if(turnLeft) controls.getObject().rotation.y += spdTurn * delta;
+            if(turnRight) controls.getObject().rotation.y -= spdTurn * delta;
+
+            // --- VECTORS ---
+            const forward = new THREE.Vector3();
+            const right = new THREE.Vector3();
+            
+            camera.getWorldDirection(forward);
+
+            // KEY CHANGE: DO NOT FLATTEN Y UNLESS HEIGHT LOCKED
+            if (heightLocked) {
+                forward.y = 0; 
+                forward.normalize();
+            }
+            // else: We use the raw 'forward' vector which includes vertical component.
+            
+            right.crossVectors(forward, new THREE.Vector3(0,1,0)).normalize();
+
+            // Apply Movement
+            if(moveF) camera.position.addScaledVector(forward, moveDist);
+            if(moveB) camera.position.addScaledVector(forward, -moveDist);
+            
+            if(moveL) camera.position.addScaledVector(right, -strafeDist); 
+            if(moveR) camera.position.addScaledVector(right, strafeDist);
+        }
+        renderer.render(scene, camera);
+    }
+
+    init();
+    animate();
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth/window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
