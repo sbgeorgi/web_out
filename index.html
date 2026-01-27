@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Biosphere - Interactive Tour</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Biosphere Explorer</title>
   <style>
-    :root { --bg: #05070a; --ui-bg: rgba(20, 25, 40, 0.9); --accent: #00e5ff; --text: #f0f0f0; }
-    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+    :root { --bg: #05070a; --accent: #00e5ff; --text: #f0f0f0; }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
     #app { position: fixed; inset: 0; }
     
     /* UI OVERLAY */
@@ -15,39 +15,47 @@
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       z-index: 100; transition: opacity 0.5s ease;
     }
-    h1 { font-weight: 300; letter-spacing: 6px; margin: 0 0 10px 0; font-size: 32px; text-transform: uppercase; }
+    h1 { font-weight: 300; letter-spacing: 6px; margin: 0 0 10px 0; font-size: 8vw; text-transform: uppercase; text-align: center;}
     h1 span { font-weight: 800; color: var(--accent); }
     p { color: #888; font-size: 14px; margin-bottom: 30px; letter-spacing: 1px; }
     
     #startBtn {
-      padding: 15px 60px; font-size: 16px; font-weight: 700; letter-spacing: 2px;
+      padding: 15px 40px; font-size: 16px; font-weight: 700; letter-spacing: 2px;
       background: transparent; color: var(--accent); border: 2px solid var(--accent); 
-      cursor: pointer; text-transform: uppercase; transition: all 0.2s;
+      cursor: pointer; text-transform: uppercase; transition: all 0.2s; border-radius: 30px;
     }
-    #startBtn:hover { background: var(--accent); color: #000; box-shadow: 0 0 40px var(--accent); }
+    #startBtn:hover, #startBtn:active { background: var(--accent); color: #000; box-shadow: 0 0 40px var(--accent); }
 
-    /* HUD */
+    /* HUD / PROGRESS */
     #hud {
-      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-      display: flex; flex-direction: column; align-items: center;
-      pointer-events: none; opacity: 0; transition: opacity 1s;
+      position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+      width: 60%; pointer-events: none; opacity: 0; transition: opacity 1s;
+      z-index: 50;
     }
-    .hud-controls {
-        background: rgba(0,0,0,0.6); padding: 8px 20px; border-radius: 20px;
-        backdrop-filter: blur(5px); border: 1px solid rgba(255,255,255,0.1);
-        font-size: 12px; color: #ccc; margin-bottom: 10px; display: flex; gap: 15px;
-    }
-    .key { font-weight: bold; color: #fff; border: 1px solid #666; padding: 0 5px; border-radius: 3px; background: rgba(255,255,255,0.1); }
-    
-    /* PROGRESS BAR */
-    #progress-container {
-        width: 300px; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden;
-    }
-    #progress-bar {
-        width: 0%; height: 100%; background: var(--accent); box-shadow: 0 0 10px var(--accent); transition: width 0.1s linear;
-    }
+    #progress-bg { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+    #progress-bar { width: 0%; height: 100%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 
+    /* JOYSTICKS ZONES */
+    .joystick-zone {
+        position: fixed; bottom: 40px; width: 150px; height: 150px; z-index: 50;
+    }
+    #zone-left { left: 40px; }
+    #zone-right { right: 40px; }
+
+    /* Hide instructions on small screens */
+    #desktop-hint {
+        position: fixed; bottom: 20px; width: 100%; text-align: center; color: #666; font-size: 10px; pointer-events: none;
+    }
+    @media (max-width: 768px) {
+        #desktop-hint { display: none; }
+        h1 { font-size: 32px; }
+        #zone-left { left: 20px; bottom: 20px; }
+        #zone-right { right: 20px; bottom: 20px; }
+    }
   </style>
+
+  <!-- Load Nipple.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
   <!-- Import Map -->
   <script type="importmap">
@@ -65,18 +73,19 @@
 
   <div id="overlay">
     <h1>Biosphere<span>Explorer</span></h1>
-    <p>INTERACTIVE WALKTHROUGH</p>
-    <button id="startBtn">ENTER EXPERIENCE</button>
+    <p>MOBILE & DESKTOP READY</p>
+    <button id="startBtn">ENTER</button>
   </div>
 
   <div id="hud">
-    <div class="hud-controls">
-        <span><span class="key">W</span> / <span class="key">S</span> MOVE</span>
-        <span><span class="key">A</span> / <span class="key">D</span> TURN</span>
-        <span><span class="key">MOUSE</span> LOOK</span>
-    </div>
-    <div id="progress-container"><div id="progress-bar"></div></div>
+    <div id="progress-bg"><div id="progress-bar"></div></div>
   </div>
+
+  <div id="desktop-hint">WASD to Move • ARROWS to Look</div>
+
+  <!-- Joystick Containers -->
+  <div id="zone-left" class="joystick-zone"></div>
+  <div id="zone-right" class="joystick-zone"></div>
 
   <script type="module">
     import * as THREE from 'three';
@@ -85,16 +94,17 @@
     import { LASLoader } from 'https://cdn.jsdelivr.net/npm/@loaders.gl/las@4.3.3/+esm';
 
     // =========================================================================
-    // 🌍 DATA & SETTINGS
+    // 🌍 SETTINGS
     // =========================================================================
 
     const SETTINGS = {
-        // Start Position (End of array logic handles this automatically)
         startPos: new THREE.Vector3(-25.72, 25.83, 0.64),
         startLookAt: new THREE.Vector3(-24.83, 35.57, -1.45),
         
-        walkSpeed: 2.5,   // Speed along rail
-        turnSpeed: 1.2,   // Rotation speed for keys
+        walkSpeed: 2.5,  
+        keyTurnSpeed: 1.5, // Speed for A/D/Arrows
+        touchTurnSpeed: 2.0, // Speed for Joystick
+
         fileUrl: './cloud_web.laz',
         metaUrl: './cloud_web.meta.json'
     };
@@ -162,19 +172,19 @@
         new THREE.Vector3(-25.72, 25.83, 0.64),
     ];
 
-    // =========================================================================
-
-    // Reverse path if we are starting at the "End"
+    // Auto-reverse path if needed
     const startDist = SETTINGS.startPos.distanceTo(SAVED_PATH[0]);
     const endDist = SETTINGS.startPos.distanceTo(SAVED_PATH[SAVED_PATH.length-1]);
-    
-    if(endDist < startDist) {
-        SAVED_PATH.reverse();
-    }
+    if(endDist < startDist) SAVED_PATH.reverse();
 
     // VARIABLES
     let moveF=false, moveB=false, turnL=false, turnR=false;
-    let railProgress = 0; // 0.0 to 1.0
+    // Joystick Variables
+    let joyMove = 0; 
+    let joyLookX = 0;
+    let joyLookY = 0;
+    
+    let railProgress = 0; 
     let railCurve = null;
     let totalRailLength = 0;
     let prevTime = performance.now();
@@ -195,19 +205,45 @@
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     document.getElementById('app').appendChild(renderer.domElement);
 
-    // CONTROLS
+    // CONTROLS (Desktop Mouse)
     const controls = new PointerLockControls(camera, document.body);
     const startBtn = document.getElementById('startBtn');
     const overlay = document.getElementById('overlay');
 
-    startBtn.addEventListener('click', () => controls.lock());
-    controls.addEventListener('lock', () => {
-        overlay.style.opacity = '0';
-        hud.style.opacity = '1';
+    // --- JOYSTICK SETUP ---
+    const mgrLeft = nipplejs.create({
+        zone: document.getElementById('zone-left'),
+        mode: 'static',
+        position: { left: '50%', top: '50%' },
+        color: '#00e5ff'
     });
-    controls.addEventListener('unlock', () => {
-        overlay.style.opacity = '1';
-        hud.style.opacity = '0';
+    const mgrRight = nipplejs.create({
+        zone: document.getElementById('zone-right'),
+        mode: 'static',
+        position: { left: '50%', top: '50%' },
+        color: '#00e5ff'
+    });
+
+    // Left Stick (Move)
+    mgrLeft.on('move', (evt, data) => {
+        joyMove = Math.sin(data.angle.radian) * (data.distance / 50); 
+    });
+    mgrLeft.on('end', () => { joyMove = 0; });
+
+    // Right Stick (Look)
+    mgrRight.on('move', (evt, data) => {
+        joyLookX = Math.cos(data.angle.radian) * (data.distance / 50);
+        joyLookY = Math.sin(data.angle.radian) * (data.distance / 50);
+    });
+    mgrRight.on('end', () => { joyLookX = 0; joyLookY = 0; });
+
+
+    // START
+    startBtn.addEventListener('click', () => {
+        try { controls.lock(); } catch(e) {}
+        overlay.style.opacity = '0';
+        setTimeout(() => overlay.style.display = 'none', 500);
+        hud.style.opacity = '1';
     });
 
     // INIT PATH
@@ -216,28 +252,17 @@
     railCurve.tension = 0.5;
     totalRailLength = railCurve.getLength();
 
-    // Set Initial Position
     const p0 = railCurve.getPointAt(0);
     camera.position.copy(p0);
     camera.lookAt(SETTINGS.startLookAt);
 
-    // INPUTS
+    // KEYBOARD
     const onKey = (e, active) => {
         switch(e.code) {
-            case 'KeyW': 
-            case 'ArrowUp':
-                moveF = active; break;
-            case 'KeyS': 
-            case 'ArrowDown':
-                moveB = active; break;
-            
-            // KEYBOARD ROTATION
-            case 'KeyA':
-            case 'ArrowLeft':
-                turnL = active; break;
-            case 'KeyD':
-            case 'ArrowRight':
-                turnR = active; break;
+            case 'KeyW': case 'ArrowUp': moveF = active; break;
+            case 'KeyS': case 'ArrowDown': moveB = active; break;
+            case 'KeyA': case 'ArrowLeft': turnL = active; break;
+            case 'KeyD': case 'ArrowRight': turnR = active; break;
         }
     };
     document.addEventListener('keydown', (e) => onKey(e, true));
@@ -296,12 +321,10 @@
             const points = new THREE.Points(geometry, material);
             scene.add(points);
 
-        } catch(err) {
-            console.error("Error loading cloud:", err);
-        }
+        } catch(err) { console.error(err); }
     }
 
-    // ANIMATION LOOP
+    // GAME LOOP
     function animate() {
         requestAnimationFrame(animate);
 
@@ -309,27 +332,36 @@
         const delta = (time - prevTime) / 1000;
         prevTime = time;
 
-        if (controls.isLocked) {
-            
-            // 1. POSITION (Rail System)
-            const progressStep = (SETTINGS.walkSpeed * delta) / totalRailLength;
+        // 1. POSITION (Rail)
+        let speed = 0;
+        if (moveF) speed += SETTINGS.walkSpeed;
+        if (moveB) speed -= SETTINGS.walkSpeed;
+        speed += joyMove * SETTINGS.walkSpeed;
 
-            if (moveF) railProgress += progressStep;
-            if (moveB) railProgress -= progressStep;
-            railProgress = Math.max(0, Math.min(1, railProgress));
+        const progressStep = (speed * delta) / totalRailLength;
+        railProgress += progressStep;
+        railProgress = Math.max(0, Math.min(1, railProgress));
 
-            const targetPos = railCurve.getPointAt(railProgress);
-            camera.position.copy(targetPos);
-            
-            // 2. ROTATION (Keys)
-            // PointerLockControls usually handles mouse, but we can manually add rotation to the object it controls
-            if (turnL) controls.getObject().rotation.y += SETTINGS.turnSpeed * delta;
-            if (turnR) controls.getObject().rotation.y -= SETTINGS.turnSpeed * delta;
+        const targetPos = railCurve.getPointAt(railProgress);
+        camera.position.copy(targetPos);
+        
+        // 2. ROTATION (Keys + Joystick)
+        // We use controls.getObject().rotation to access the camera Wrapper cleanly
+        // This prevents the "breakage" you saw earlier.
+        const camObj = controls.getObject();
+        
+        // Yaw (Left/Right)
+        if (turnL) camObj.rotation.y += SETTINGS.keyTurnSpeed * delta;
+        if (turnR) camObj.rotation.y -= SETTINGS.keyTurnSpeed * delta;
+        camObj.rotation.y -= joyLookX * SETTINGS.touchTurnSpeed * delta; // Joystick X
 
-            // 3. UI
-            uiBar.style.width = (railProgress * 100) + '%';
-        }
+        // Pitch (Up/Down) - Only for Joystick (Mouse does this natively)
+        camObj.rotation.x += joyLookY * SETTINGS.touchTurnSpeed * delta;
+        // Clamp pitch to prevent flipping
+        camObj.rotation.x = Math.max(-1.5, Math.min(1.5, camObj.rotation.x));
 
+        // 3. UI
+        uiBar.style.width = (railProgress * 100) + '%';
         renderer.render(scene, camera);
     }
 
