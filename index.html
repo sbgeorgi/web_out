@@ -9,55 +9,49 @@
     html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
     #app { position: fixed; inset: 0; }
     
-    /* UI OVERLAY */
+    /* OVERLAY */
     #overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+      position: fixed; inset: 0; background: rgba(0,0,0,0.9);
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       z-index: 100; transition: opacity 0.5s ease;
     }
-    h1 { font-weight: 300; letter-spacing: 6px; margin: 0 0 10px 0; font-size: 8vw; text-transform: uppercase; text-align: center;}
+    h1 { font-weight: 300; letter-spacing: 4px; margin: 0 0 20px 0; font-size: 8vw; text-transform: uppercase; text-align: center; }
     h1 span { font-weight: 800; color: var(--accent); }
-    p { color: #888; font-size: 14px; margin-bottom: 30px; letter-spacing: 1px; }
     
     #startBtn {
-      padding: 15px 40px; font-size: 16px; font-weight: 700; letter-spacing: 2px;
+      padding: 15px 50px; font-size: 16px; font-weight: 700; letter-spacing: 2px;
       background: transparent; color: var(--accent); border: 2px solid var(--accent); 
-      cursor: pointer; text-transform: uppercase; transition: all 0.2s; border-radius: 30px;
+      cursor: pointer; text-transform: uppercase; border-radius: 30px; display: none;
     }
-    #startBtn:hover, #startBtn:active { background: var(--accent); color: #000; box-shadow: 0 0 40px var(--accent); }
+    
+    /* LOADING BAR */
+    #loading-container { width: 200px; text-align: center; }
+    #loading-text { color: #888; margin-bottom: 10px; font-size: 11px; font-family: monospace; letter-spacing: 1px;}
+    #load-bar-bg { width: 100%; height: 4px; background: #333; border-radius: 2px; overflow: hidden; }
+    #load-bar-fill { width: 0%; height: 100%; background: var(--accent); transition: width 0.2s; }
 
-    /* HUD / PROGRESS */
+    /* HUD */
     #hud {
       position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-      width: 60%; pointer-events: none; opacity: 0; transition: opacity 1s;
-      z-index: 50;
+      width: 60%; pointer-events: none; opacity: 0; transition: opacity 1s; z-index: 50;
     }
     #progress-bg { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
     #progress-bar { width: 0%; height: 100%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
 
-    /* JOYSTICKS ZONES */
-    .joystick-zone {
-        position: fixed; bottom: 40px; width: 150px; height: 150px; z-index: 50;
-    }
-    #zone-left { left: 40px; }
-    #zone-right { right: 40px; }
-
-    /* Hide instructions on small screens */
+    /* JOYSTICKS */
+    .joystick-zone { position: fixed; bottom: 40px; width: 150px; height: 150px; z-index: 50; }
+    #zone-left { left: 20px; }
+    #zone-right { right: 20px; }
+    
+    /* HINT */
     #desktop-hint {
         position: fixed; bottom: 20px; width: 100%; text-align: center; color: #666; font-size: 10px; pointer-events: none;
     }
-    @media (max-width: 768px) {
-        #desktop-hint { display: none; }
-        h1 { font-size: 32px; }
-        #zone-left { left: 20px; bottom: 20px; }
-        #zone-right { right: 20px; bottom: 20px; }
-    }
+    @media (max-width: 768px) { #desktop-hint { display: none; } }
   </style>
 
-  <!-- Load Nipple.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
 
-  <!-- Import Map -->
   <script type="importmap">
     {
       "imports": {
@@ -73,7 +67,12 @@
 
   <div id="overlay">
     <h1>Biosphere<span>Explorer</span></h1>
-    <p>MOBILE & DESKTOP READY</p>
+    
+    <div id="loading-container">
+        <div id="loading-text">CONNECTING...</div>
+        <div id="load-bar-bg"><div id="load-bar-fill"></div></div>
+    </div>
+
     <button id="startBtn">ENTER</button>
   </div>
 
@@ -83,7 +82,6 @@
 
   <div id="desktop-hint">WASD to Move • ARROWS to Look</div>
 
-  <!-- Joystick Containers -->
   <div id="zone-left" class="joystick-zone"></div>
   <div id="zone-right" class="joystick-zone"></div>
 
@@ -93,23 +91,25 @@
     import { load } from 'https://cdn.jsdelivr.net/npm/@loaders.gl/core@4.3.3/+esm';
     import { LASLoader } from 'https://cdn.jsdelivr.net/npm/@loaders.gl/las@4.3.3/+esm';
 
-    // =========================================================================
-    // 🌍 SETTINGS
-    // =========================================================================
+    // 🕵️ DETECT MOBILE
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
     const SETTINGS = {
         startPos: new THREE.Vector3(-25.72, 25.83, 0.64),
         startLookAt: new THREE.Vector3(-24.83, 35.57, -1.45),
-        
         walkSpeed: 2.5,  
-        keyTurnSpeed: 1.5, // Speed for A/D/Arrows
-        touchTurnSpeed: 2.0, // Speed for Joystick
-
+        keyTurnSpeed: 1.5,
+        touchTurnSpeed: 2.0,
+        
+        // 🚀 OPTIMIZATION SETTINGS
+        pointSize: isMobile ? 0.20 : 0.1,    // Bigger points on mobile
+        skipPoints: isMobile ? 3 : 1,        // Skip 2 out of 3 points on mobile to save RAM
+        pixelRatio: isMobile ? 1.0 : 1.5,    // Cap resolution on mobile
+        
         fileUrl: './cloud_web.laz',
         metaUrl: './cloud_web.meta.json'
     };
 
-    // YOUR RECORDED PATH
     let SAVED_PATH = [
         new THREE.Vector3(24.30, -3.32, -5.97),
         new THREE.Vector3(24.44, -3.93, -6.55),
@@ -172,91 +172,58 @@
         new THREE.Vector3(-25.72, 25.83, 0.64),
     ];
 
-    // Auto-reverse path if needed
     const startDist = SETTINGS.startPos.distanceTo(SAVED_PATH[0]);
     const endDist = SETTINGS.startPos.distanceTo(SAVED_PATH[SAVED_PATH.length-1]);
     if(endDist < startDist) SAVED_PATH.reverse();
 
-    // VARIABLES
     let moveF=false, moveB=false, turnL=false, turnR=false;
-    // Joystick Variables
-    let joyMove = 0; 
-    let joyLookX = 0;
-    let joyLookY = 0;
-    
-    let railProgress = 0; 
-    let railCurve = null;
-    let totalRailLength = 0;
-    let prevTime = performance.now();
-    let centerOffset = new THREE.Vector3();
+    let joyMove=0, joyLookX=0, joyLookY=0;
+    let railProgress=0, railCurve=null, totalRailLength=0;
+    let prevTime=performance.now();
+    let centerOffset=new THREE.Vector3();
 
-    // DOM
-    const uiBar = document.getElementById('progress-bar');
-    const hud = document.getElementById('hud');
+    const uiBar=document.getElementById('progress-bar');
+    const hud=document.getElementById('hud');
+    const loadText=document.getElementById('loading-text');
+    const loadFill=document.getElementById('load-bar-fill');
+    const loadContainer=document.getElementById('loading-container');
+    const startBtn=document.getElementById('startBtn');
+    const overlay=document.getElementById('overlay');
 
-    // SCENE
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05070a);
     scene.fog = new THREE.FogExp2(0x05070a, 0.015); 
 
     const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: "high-performance" });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, SETTINGS.pixelRatio));
     document.getElementById('app').appendChild(renderer.domElement);
 
-    // CONTROLS (Desktop Mouse)
     const controls = new PointerLockControls(camera, document.body);
-    const startBtn = document.getElementById('startBtn');
-    const overlay = document.getElementById('overlay');
 
-    // --- JOYSTICK SETUP ---
-    const mgrLeft = nipplejs.create({
-        zone: document.getElementById('zone-left'),
-        mode: 'static',
-        position: { left: '50%', top: '50%' },
-        color: '#00e5ff'
-    });
-    const mgrRight = nipplejs.create({
-        zone: document.getElementById('zone-right'),
-        mode: 'static',
-        position: { left: '50%', top: '50%' },
-        color: '#00e5ff'
-    });
+    const mgrLeft = nipplejs.create({ zone: document.getElementById('zone-left'), mode: 'static', position: { left: '50%', top: '50%' }, color: '#00e5ff' });
+    const mgrRight = nipplejs.create({ zone: document.getElementById('zone-right'), mode: 'static', position: { left: '50%', top: '50%' }, color: '#00e5ff' });
 
-    // Left Stick (Move)
-    mgrLeft.on('move', (evt, data) => {
-        joyMove = Math.sin(data.angle.radian) * (data.distance / 50); 
-    });
+    mgrLeft.on('move', (evt, data) => { joyMove = Math.sin(data.angle.radian) * (data.distance / 50); });
     mgrLeft.on('end', () => { joyMove = 0; });
-
-    // Right Stick (Look)
-    mgrRight.on('move', (evt, data) => {
-        joyLookX = Math.cos(data.angle.radian) * (data.distance / 50);
-        joyLookY = Math.sin(data.angle.radian) * (data.distance / 50);
-    });
+    mgrRight.on('move', (evt, data) => { joyLookX = Math.cos(data.angle.radian) * (data.distance / 50); joyLookY = Math.sin(data.angle.radian) * (data.distance / 50); });
     mgrRight.on('end', () => { joyLookX = 0; joyLookY = 0; });
 
-
-    // START
     startBtn.addEventListener('click', () => {
-        try { controls.lock(); } catch(e) {}
+        try { if(!isMobile) controls.lock(); } catch(e) {}
         overlay.style.opacity = '0';
         setTimeout(() => overlay.style.display = 'none', 500);
         hud.style.opacity = '1';
     });
 
-    // INIT PATH
     railCurve = new THREE.CatmullRomCurve3(SAVED_PATH);
     railCurve.curveType = 'centripetal'; 
     railCurve.tension = 0.5;
     totalRailLength = railCurve.getLength();
-
-    const p0 = railCurve.getPointAt(0);
-    camera.position.copy(p0);
+    camera.position.copy(railCurve.getPointAt(0));
     camera.lookAt(SETTINGS.startLookAt);
 
-    // KEYBOARD
     const onKey = (e, active) => {
         switch(e.code) {
             case 'KeyW': case 'ArrowUp': moveF = active; break;
@@ -268,7 +235,6 @@
     document.addEventListener('keydown', (e) => onKey(e, true));
     document.addEventListener('keyup', (e) => onKey(e, false));
 
-    // LOADER
     async function init() {
         try {
             try {
@@ -277,34 +243,70 @@
                 if(meta.origin) centerOffset.set(meta.origin[0], meta.origin[1], meta.origin[2]);
             } catch(e){}
 
-            const data = await load(SETTINGS.fileUrl, LASLoader);
+            // FETCH WITH PROGRESS
+            const response = await fetch(SETTINGS.fileUrl);
+            if (!response.ok) throw new Error("File not found");
+            const reader = response.body.getReader();
+            const contentLength = +response.headers.get('Content-Length');
+            let receivedLength = 0;
+            let chunks = [];
+            while(true) {
+                const {done, value} = await reader.read();
+                if (done) break;
+                chunks.push(value);
+                receivedLength += value.length;
+                if(contentLength) {
+                    const pct = Math.round((receivedLength/contentLength)*100);
+                    loadFill.style.width = pct + "%";
+                    loadText.innerText = `DOWNLOADING ${pct}%`;
+                }
+            }
+            let chunksAll = new Uint8Array(receivedLength);
+            let position = 0;
+            for(let chunk of chunks) { chunksAll.set(chunk, position); position += chunk.length; }
+
+            loadText.innerText = "PROCESSING...";
+
+            const data = await new LASLoader().parse(chunksAll.buffer);
             const posAttr = data.attributes['POSITION']?.value || data.attributes['POSITION0']?.value;
             const colAttr = data.attributes['COLOR_0']?.value || data.attributes['RGB']?.value;
             const intAttr = data.attributes['intensity']?.value;
 
-            const positions = new Float32Array(posAttr.length);
-            for(let i=0; i<posAttr.length; i+=3) {
-                positions[i] = posAttr[i] - centerOffset.x;
-                positions[i+1] = posAttr[i+1] - centerOffset.y;
-                positions[i+2] = posAttr[i+2] - centerOffset.z;
-            }
+            // OPTIMIZATION: DECIMATION
+            // Calculate how many points we will actually render based on skipFactor
+            const skip = SETTINGS.skipPoints;
+            const totalPoints = posAttr.length / 3;
+            const newCount = Math.floor(totalPoints / skip);
             
-            let colors = null;
-            if(colAttr) {
-                colors = new Float32Array(posAttr.length);
-                const maxVal = (colAttr instanceof Uint8Array) ? 255 : (colAttr instanceof Uint16Array) ? 65535 : 1;
-                const stride = (colAttr.length === posAttr.length) ? 3 : 4;
-                for(let i=0, j=0; i<colors.length; i+=3, j+=stride) {
-                    colors[i]   = colAttr[j] / maxVal;
-                    colors[i+1] = colAttr[j+1] / maxVal;
-                    colors[i+2] = colAttr[j+2] / maxVal;
+            const positions = new Float32Array(newCount * 3);
+            let colors = colAttr || intAttr ? new Float32Array(newCount * 3) : null;
+
+            let j = 0; // Index for new arrays
+            
+            // Loop through original points, skipping based on setting
+            for(let i=0; i<totalPoints; i += skip) {
+                const srcIndex = i * 3;
+                
+                positions[j]   = posAttr[srcIndex] - centerOffset.x;
+                positions[j+1] = posAttr[srcIndex+1] - centerOffset.y;
+                positions[j+2] = posAttr[srcIndex+2] - centerOffset.z;
+
+                if(colors) {
+                    if(colAttr) {
+                        // Color handling
+                        const maxVal = (colAttr instanceof Uint8Array) ? 255 : (colAttr instanceof Uint16Array) ? 65535 : 1;
+                        const stride = (colAttr.length === posAttr.length) ? 3 : 4;
+                        const colIndex = i * stride;
+                        colors[j]   = colAttr[colIndex] / maxVal;
+                        colors[j+1] = colAttr[colIndex+1] / maxVal;
+                        colors[j+2] = colAttr[colIndex+2] / maxVal;
+                    } else if (intAttr) {
+                        // Intensity handling
+                        const v = Math.min(intAttr[i]/65535*5, 1);
+                        colors[j] = v; colors[j+1] = v; colors[j+2] = v;
+                    }
                 }
-            } else if(intAttr) {
-                 colors = new Float32Array(posAttr.length);
-                 for(let i=0; i<posAttr.length; i+=3) {
-                    const v = Math.min(intAttr[i/3]/65535*5, 1);
-                    colors[i]=v; colors[i+1]=v; colors[i+2]=v;
-                 }
+                j += 3;
             }
 
             const geometry = new THREE.BufferGeometry();
@@ -313,18 +315,23 @@
             geometry.computeBoundingBox();
 
             const material = new THREE.PointsMaterial({ 
-                size: 0.1, 
+                size: SETTINGS.pointSize, 
                 vertexColors: !!colors, 
                 color: 0xffffff,
             });
 
-            const points = new THREE.Points(geometry, material);
-            scene.add(points);
+            scene.add(new THREE.Points(geometry, material));
 
-        } catch(err) { console.error(err); }
+            loadContainer.style.display = 'none';
+            startBtn.style.display = 'block';
+
+        } catch(err) {
+            loadText.innerText = "ERROR";
+            loadText.style.color = "red";
+            console.error(err);
+        }
     }
 
-    // GAME LOOP
     function animate() {
         requestAnimationFrame(animate);
 
@@ -332,7 +339,6 @@
         const delta = (time - prevTime) / 1000;
         prevTime = time;
 
-        // 1. POSITION (Rail)
         let speed = 0;
         if (moveF) speed += SETTINGS.walkSpeed;
         if (moveB) speed -= SETTINGS.walkSpeed;
@@ -345,22 +351,13 @@
         const targetPos = railCurve.getPointAt(railProgress);
         camera.position.copy(targetPos);
         
-        // 2. ROTATION (Keys + Joystick)
-        // We use controls.getObject().rotation to access the camera Wrapper cleanly
-        // This prevents the "breakage" you saw earlier.
         const camObj = controls.getObject();
-        
-        // Yaw (Left/Right)
         if (turnL) camObj.rotation.y += SETTINGS.keyTurnSpeed * delta;
         if (turnR) camObj.rotation.y -= SETTINGS.keyTurnSpeed * delta;
-        camObj.rotation.y -= joyLookX * SETTINGS.touchTurnSpeed * delta; // Joystick X
-
-        // Pitch (Up/Down) - Only for Joystick (Mouse does this natively)
+        camObj.rotation.y -= joyLookX * SETTINGS.touchTurnSpeed * delta; 
         camObj.rotation.x += joyLookY * SETTINGS.touchTurnSpeed * delta;
-        // Clamp pitch to prevent flipping
         camObj.rotation.x = Math.max(-1.5, Math.min(1.5, camObj.rotation.x));
 
-        // 3. UI
         uiBar.style.width = (railProgress * 100) + '%';
         renderer.render(scene, camera);
     }
