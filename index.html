@@ -32,8 +32,15 @@
       width: 60%; pointer-events: none; opacity: 0; transition: opacity 1s;
       z-index: 50;
     }
-    #progress-bg { width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
-    #progress-bar { width: 0%; height: 100%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+    #progress-bg { 
+      width: 100%; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; 
+    }
+    #progress-bar { 
+      width: 100%; height: 100%; background: var(--accent); box-shadow: 0 0 10px var(--accent); 
+      transform-origin: left center;
+      transform: scaleX(0);
+      will-change: transform;
+    }
 
     /* JOYSTICKS ZONES */
     .joystick-zone {
@@ -48,11 +55,22 @@
         color: #00e5ff; font-family: monospace; font-size: 11px; 
         background: rgba(0,0,0,0.7); padding: 10px; border-radius: 4px;
         pointer-events: none; z-index: 40; text-align: right;
-        white-space: pre-wrap;
+        white-space: pre;
+        contain: content;
     }
+    #calibration-ui strong { display: block; margin-bottom: 4px; }
+    .cal-row { display: block; }
+
+    /* LOADING INDICATOR */
+    #loading-indicator {
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+        color: var(--accent); font-size: 12px; letter-spacing: 2px;
+        z-index: 101; opacity: 0; transition: opacity 0.3s;
+    }
+    #loading-indicator.visible { opacity: 1; }
 
     /* ========================================= */
-    /* ⌨️ CONTROLS VISUALIZER (NEW) */
+    /* ⌨️ CONTROLS VISUALIZER */
     /* ========================================= */
     #controls-widget {
         position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
@@ -65,6 +83,7 @@
         pointer-events: none;
         z-index: 60;
         transition: opacity 0.5s;
+        contain: layout style;
     }
 
     .control-group {
@@ -85,6 +104,7 @@
         display: flex; justify-content: center; align-items: center;
         font-weight: 700; font-size: 14px;
         transition: all 0.1s ease;
+        will-change: transform, background-color, border-color;
     }
     
     /* Active State (When pressed) */
@@ -140,8 +160,18 @@
 </head>
 
 <body>
-  <!-- CALIBRATION UI -->
-  <div id="calibration-ui">LOADING STATS...</div>
+  <!-- CALIBRATION UI - Optimized with individual spans -->
+  <div id="calibration-ui">
+    <strong>CALIBRATION DATA</strong>
+    <span class="cal-row">POS X: <span id="cal-px">0.00</span></span>
+    <span class="cal-row">POS Y: <span id="cal-py">0.00</span></span>
+    <span class="cal-row">POS Z: <span id="cal-pz">0.00</span></span>
+    <span class="cal-row">----------------</span>
+    <span class="cal-row">ROT X: <span id="cal-rx">0.00</span></span>
+    <span class="cal-row">ROT Y: <span id="cal-ry">0.00</span></span>
+    <span class="cal-row">ORDER: <span id="cal-order">YXZ</span></span>
+    <span class="cal-row">PATH: <span id="cal-path">0.0</span>%</span>
+  </div>
 
   <div id="app"></div>
 
@@ -154,6 +184,9 @@
   <div id="hud">
     <div id="progress-bg"><div id="progress-bar"></div></div>
   </div>
+
+  <!-- Loading Indicator -->
+  <div id="loading-indicator">LOADING POINT CLOUD...</div>
 
   <!-- BEAUTIFUL CONTROLS WIDGET -->
   <div id="controls-widget">
@@ -179,7 +212,6 @@
           <div style="height: 40px; display: flex; align-items: center;">
             <div class="mouse-icon"><div class="mouse-wheel"></div></div>
           </div>
-          <!-- Spacer to align text with keys -->
           <div style="height: 40px; display: none;"></div> 
           <div class="widget-label">Look</div>
       </div>
@@ -207,7 +239,11 @@
         touchTurnSpeed: 2.0, 
 
         fileUrl: './cloud_web.laz',
-        metaUrl: './cloud_web.meta.json'
+        metaUrl: './cloud_web.meta.json',
+        
+        // Performance settings
+        curveSamples: 1000,  // Pre-sampled curve points for O(1) lookup
+        uiUpdateInterval: 50, // Update calibration UI every N ms (reduces reflows)
     };
 
     // YOUR RECORDED PATH
@@ -275,57 +311,108 @@
 
     // Auto-reverse path if needed
     const startDist = SETTINGS.startPos.distanceTo(SAVED_PATH[0]);
-    const endDist = SETTINGS.startPos.distanceTo(SAVED_PATH[SAVED_PATH.length-1]);
-    if(endDist < startDist) SAVED_PATH.reverse();
+    const endDist = SETTINGS.startPos.distanceTo(SAVED_PATH[SAVED_PATH.length - 1]);
+    if (endDist < startDist) SAVED_PATH.reverse();
 
-    // VARIABLES
-    let moveF=false, moveB=false, turnL=false, turnR=false;
+    // =========================================================================
+    // 🎯 STATE VARIABLES
+    // =========================================================================
+    
+    // Movement flags (using bitfield for faster checks)
+    let moveFlags = 0;
+    const MOVE_FORWARD = 1;
+    const MOVE_BACKWARD = 2;
+    const TURN_LEFT = 4;
+    const TURN_RIGHT = 8;
+    
     let joyMove = 0, joyLookX = 0, joyLookY = 0;
     
     let railProgress = 0; 
     let railCurve = null;
     let totalRailLength = 0;
-    let prevTime = performance.now();
-    let centerOffset = new THREE.Vector3();
-    const WORLD_UP = new THREE.Vector3(0, 0, 1); 
-
-    // DOM
-    const uiBar = document.getElementById('progress-bar');
-    const hud = document.getElementById('hud');
-    const calUI = document.getElementById('calibration-ui');
-    const startBtn = document.getElementById('startBtn');
-    const overlay = document.getElementById('overlay');
+    let invRailLength = 0; // Pre-computed 1/length for faster division
+    let prevTime = 0;
+    let lastUIUpdate = 0;
+    const centerOffset = new THREE.Vector3();
+    const WORLD_UP = new THREE.Vector3(0, 0, 1);
     
-    // UI KEYS
-    const keyEls = {
-        'KeyW': document.getElementById('ui-key-w'),
-        'KeyA': document.getElementById('ui-key-a'),
-        'KeyS': document.getElementById('ui-key-s'),
-        'KeyD': document.getElementById('ui-key-d')
+    // Pre-sampled curve points for O(1) lookup
+    let curvePointsCache = null;
+    
+    // Reusable objects (avoid GC in animation loop)
+    const _tempVec3 = new THREE.Vector3();
+    const _targetPos = new THREE.Vector3();
+
+    // =========================================================================
+    // 🖥️ DOM ELEMENT CACHE
+    // =========================================================================
+    
+    const DOM = {
+        app: document.getElementById('app'),
+        overlay: document.getElementById('overlay'),
+        startBtn: document.getElementById('startBtn'),
+        hud: document.getElementById('hud'),
+        progressBar: document.getElementById('progress-bar'),
+        loadingIndicator: document.getElementById('loading-indicator'),
+        // Calibration UI elements (individual for targeted updates)
+        calPx: document.getElementById('cal-px'),
+        calPy: document.getElementById('cal-py'),
+        calPz: document.getElementById('cal-pz'),
+        calRx: document.getElementById('cal-rx'),
+        calRy: document.getElementById('cal-ry'),
+        calOrder: document.getElementById('cal-order'),
+        calPath: document.getElementById('cal-path'),
+        // Key UI elements
+        keys: {
+            'KeyW': document.getElementById('ui-key-w'),
+            'KeyA': document.getElementById('ui-key-a'),
+            'KeyS': document.getElementById('ui-key-s'),
+            'KeyD': document.getElementById('ui-key-d')
+        }
     };
+    
     // Map Arrows to same keys for visual feedback
-    const keyMap = {
-        'ArrowUp': 'KeyW', 'ArrowLeft': 'KeyA', 'ArrowDown': 'KeyS', 'ArrowRight': 'KeyD'
+    const KEY_MAP = {
+        'ArrowUp': 'KeyW', 
+        'ArrowLeft': 'KeyA', 
+        'ArrowDown': 'KeyS', 
+        'ArrowRight': 'KeyD'
     };
 
-    // SCENE
+    // =========================================================================
+    // 🎬 SCENE SETUP
+    // =========================================================================
+    
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05070a);
-    scene.fog = new THREE.FogExp2(0x05070a, 0.015); 
+    scene.fog = new THREE.FogExp2(0x05070a, 0.015);
 
-    const camera = new THREE.PerspectiveCamera(65, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 1000);
+    
+    // Optimized renderer settings
+    const renderer = new THREE.WebGLRenderer({ 
+        antialias: true, 
+        powerPreference: "high-performance",
+        stencil: false,  // Not needed, saves memory
+        depth: true,
+        alpha: false,    // Opaque background, no alpha needed
+    });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    document.getElementById('app').appendChild(renderer.domElement);
+    renderer.sortObjects = false; // Points don't need sorting
+    DOM.app.appendChild(renderer.domElement);
 
-    // --- JOYSTICK SETUP ---
+    // =========================================================================
+    // 🕹️ JOYSTICK SETUP
+    // =========================================================================
+    
     const mgrLeft = nipplejs.create({
         zone: document.getElementById('zone-left'),
         mode: 'static',
         position: { left: '50%', top: '50%' },
         color: '#00e5ff'
     });
+    
     const mgrRight = nipplejs.create({
         zone: document.getElementById('zone-right'),
         mode: 'static',
@@ -333,180 +420,319 @@
         color: '#00e5ff'
     });
 
-    mgrLeft.on('move', (evt, data) => { joyMove = Math.sin(data.angle.radian) * (data.distance / 50); });
+    mgrLeft.on('move', (evt, data) => { 
+        joyMove = Math.sin(data.angle.radian) * (data.distance * 0.02); // Pre-multiply instead of divide
+    });
     mgrLeft.on('end', () => { joyMove = 0; });
 
     mgrRight.on('move', (evt, data) => {
-        joyLookX = Math.cos(data.angle.radian) * (data.distance / 50);
-        joyLookY = Math.sin(data.angle.radian) * (data.distance / 50);
+        const dist = data.distance * 0.02;
+        joyLookX = Math.cos(data.angle.radian) * dist;
+        joyLookY = Math.sin(data.angle.radian) * dist;
     });
     mgrRight.on('end', () => { joyLookX = 0; joyLookY = 0; });
 
-
     // =========================================================================
-    // 🖱️ CONTROLS
+    // 🛤️ PATH/CURVE SETUP
     // =========================================================================
     
-    startBtn.addEventListener('click', () => {
-        document.body.requestPointerLock();
-        overlay.style.opacity = '0';
-        setTimeout(() => overlay.style.display = 'none', 500);
-        hud.style.opacity = '1';
-    });
-
-    document.addEventListener('mousemove', (event) => {
-        if (document.pointerLockElement !== document.body) return;
-        camera.rotateOnWorldAxis(WORLD_UP, -event.movementX * SETTINGS.mouseSensitivity);
-        camera.rotateX(-event.movementY * SETTINGS.mouseSensitivity);
-    });
-
-    // INIT PATH
-    railCurve = new THREE.CatmullRomCurve3(SAVED_PATH);
-    railCurve.curveType = 'centripetal'; 
-    railCurve.tension = 0.5;
-    totalRailLength = railCurve.getLength();
+    function initCurve() {
+        railCurve = new THREE.CatmullRomCurve3(SAVED_PATH);
+        railCurve.curveType = 'centripetal';
+        railCurve.tension = 0.5;
+        totalRailLength = railCurve.getLength();
+        invRailLength = 1 / totalRailLength; // Pre-compute inverse for faster multiplication
+        
+        // Pre-sample curve points for O(1) lookup instead of O(n) getPointAt
+        const samples = SETTINGS.curveSamples;
+        curvePointsCache = new Float32Array(samples * 3);
+        for (let i = 0; i < samples; i++) {
+            const t = i / (samples - 1);
+            const point = railCurve.getPointAt(t);
+            const idx = i * 3;
+            curvePointsCache[idx] = point.x;
+            curvePointsCache[idx + 1] = point.y;
+            curvePointsCache[idx + 2] = point.z;
+        }
+    }
+    
+    // Fast curve point lookup using pre-sampled cache
+    function getCurvePointFast(t, target) {
+        const samples = SETTINGS.curveSamples;
+        const idx = Math.min(Math.floor(t * (samples - 1)), samples - 2);
+        const localT = (t * (samples - 1)) - idx;
+        
+        const i0 = idx * 3;
+        const i1 = (idx + 1) * 3;
+        
+        // Linear interpolation between cached samples
+        target.x = curvePointsCache[i0] + (curvePointsCache[i1] - curvePointsCache[i0]) * localT;
+        target.y = curvePointsCache[i0 + 1] + (curvePointsCache[i1 + 1] - curvePointsCache[i0 + 1]) * localT;
+        target.z = curvePointsCache[i0 + 2] + (curvePointsCache[i1 + 2] - curvePointsCache[i0 + 2]) * localT;
+        
+        return target;
+    }
+    
+    initCurve();
 
     // Init Camera
-    const p0 = railCurve.getPointAt(0);
-    camera.position.copy(p0);
-    camera.rotation.order = 'YXZ'; 
+    getCurvePointFast(0, _targetPos);
+    camera.position.copy(_targetPos);
+    camera.rotation.order = 'YXZ';
     camera.rotation.set(-1.49, 3.13, 0);
 
-    // KEYBOARD LOGIC & VISUALS
-    const onKey = (e, active) => {
-        // Logic
-        switch(e.code) {
-            case 'KeyW': case 'ArrowUp': moveF = active; break;
-            case 'KeyS': case 'ArrowDown': moveB = active; break;
-            case 'KeyA': case 'ArrowLeft': turnL = active; break;
-            case 'KeyD': case 'ArrowRight': turnR = active; break;
-        }
+    // =========================================================================
+    // 🖱️ CONTROLS & EVENT HANDLERS
+    // =========================================================================
+    
+    // Pointer lock state cache
+    let isPointerLocked = false;
+    
+    DOM.startBtn.addEventListener('click', () => {
+        document.body.requestPointerLock();
+        DOM.overlay.style.opacity = '0';
+        setTimeout(() => { DOM.overlay.style.display = 'none'; }, 500);
+        DOM.hud.style.opacity = '1';
+    }, { passive: true });
 
-        // Visuals
-        let id = e.code;
-        if(keyMap[id]) id = keyMap[id]; // Map arrows to letters
-        if(keyEls[id]) {
-            if(active) keyEls[id].classList.add('active');
-            else keyEls[id].classList.remove('active');
-        }
-    };
-    document.addEventListener('keydown', (e) => onKey(e, true));
-    document.addEventListener('keyup', (e) => onKey(e, false));
+    document.addEventListener('pointerlockchange', () => {
+        isPointerLocked = document.pointerLockElement === document.body;
+    }, { passive: true });
 
-    // LOADER
+    document.addEventListener('mousemove', (event) => {
+        if (!isPointerLocked) return;
+        camera.rotateOnWorldAxis(WORLD_UP, -event.movementX * SETTINGS.mouseSensitivity);
+        camera.rotateX(-event.movementY * SETTINGS.mouseSensitivity);
+    }, { passive: true });
+
+    // Optimized key handler
+    function handleKey(code, active) {
+        switch (code) {
+            case 'KeyW': case 'ArrowUp':
+                moveFlags = active ? (moveFlags | MOVE_FORWARD) : (moveFlags & ~MOVE_FORWARD);
+                break;
+            case 'KeyS': case 'ArrowDown':
+                moveFlags = active ? (moveFlags | MOVE_BACKWARD) : (moveFlags & ~MOVE_BACKWARD);
+                break;
+            case 'KeyA': case 'ArrowLeft':
+                moveFlags = active ? (moveFlags | TURN_LEFT) : (moveFlags & ~TURN_LEFT);
+                break;
+            case 'KeyD': case 'ArrowRight':
+                moveFlags = active ? (moveFlags | TURN_RIGHT) : (moveFlags & ~TURN_RIGHT);
+                break;
+        }
+        
+        // Update visual feedback
+        let mappedCode = KEY_MAP[code] || code;
+        const keyEl = DOM.keys[mappedCode];
+        if (keyEl) {
+            if (active) {
+                keyEl.classList.add('active');
+            } else {
+                keyEl.classList.remove('active');
+            }
+        }
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (!e.repeat) handleKey(e.code, true);
+    }, { passive: true });
+    
+    document.addEventListener('keyup', (e) => {
+        handleKey(e.code, false);
+    }, { passive: true });
+
+    // Debounced resize handler
+    let resizeTimeout = null;
+    function handleResize() {
+        if (resizeTimeout) return;
+        resizeTimeout = setTimeout(() => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            resizeTimeout = null;
+        }, 100);
+    }
+    window.addEventListener('resize', handleResize, { passive: true });
+
+    // =========================================================================
+    // 📦 POINT CLOUD LOADER
+    // =========================================================================
+    
     async function init() {
+        DOM.loadingIndicator.classList.add('visible');
+        
         try {
+            // Try to load metadata
             try {
                 const mRes = await fetch(SETTINGS.metaUrl);
                 const meta = await mRes.json();
-                if(meta.origin) centerOffset.set(meta.origin[0], meta.origin[1], meta.origin[2]);
-            } catch(e){}
+                if (meta.origin) {
+                    centerOffset.set(meta.origin[0], meta.origin[1], meta.origin[2]);
+                }
+            } catch (e) {
+                // Metadata optional, continue without it
+            }
 
             const data = await load(SETTINGS.fileUrl, LASLoader);
             const posAttr = data.attributes['POSITION']?.value || data.attributes['POSITION0']?.value;
             const colAttr = data.attributes['COLOR_0']?.value || data.attributes['RGB']?.value;
             const intAttr = data.attributes['intensity']?.value;
 
+            const numPoints = posAttr.length / 3;
             const positions = new Float32Array(posAttr.length);
-            for(let i=0; i<posAttr.length; i+=3) {
-                positions[i] = posAttr[i] - centerOffset.x;
-                positions[i+1] = posAttr[i+1] - centerOffset.y;
-                positions[i+2] = posAttr[i+2] - centerOffset.z;
+            
+            // Batch position processing
+            const ox = centerOffset.x, oy = centerOffset.y, oz = centerOffset.z;
+            for (let i = 0; i < posAttr.length; i += 3) {
+                positions[i] = posAttr[i] - ox;
+                positions[i + 1] = posAttr[i + 1] - oy;
+                positions[i + 2] = posAttr[i + 2] - oz;
             }
             
+            // Process colors
             let colors = null;
-            if(colAttr) {
+            if (colAttr) {
                 colors = new Float32Array(posAttr.length);
-                const maxVal = (colAttr instanceof Uint8Array) ? 255 : (colAttr instanceof Uint16Array) ? 65535 : 1;
+                const isUint8 = colAttr instanceof Uint8Array;
+                const isUint16 = colAttr instanceof Uint16Array;
+                const invMaxVal = isUint8 ? (1 / 255) : isUint16 ? (1 / 65535) : 1;
                 const stride = (colAttr.length === posAttr.length) ? 3 : 4;
-                for(let i=0, j=0; i<colors.length; i+=3, j+=stride) {
-                    colors[i]   = colAttr[j] / maxVal;
-                    colors[i+1] = colAttr[j+1] / maxVal;
-                    colors[i+2] = colAttr[j+2] / maxVal;
+                
+                for (let i = 0, j = 0; i < colors.length; i += 3, j += stride) {
+                    colors[i] = colAttr[j] * invMaxVal;
+                    colors[i + 1] = colAttr[j + 1] * invMaxVal;
+                    colors[i + 2] = colAttr[j + 2] * invMaxVal;
                 }
-            } else if(intAttr) {
-                 colors = new Float32Array(posAttr.length);
-                 for(let i=0; i<posAttr.length; i+=3) {
-                    const v = Math.min(intAttr[i/3]/65535*5, 1);
-                    colors[i]=v; colors[i+1]=v; colors[i+2]=v;
-                 }
+            } else if (intAttr) {
+                colors = new Float32Array(posAttr.length);
+                const invMax = 5 / 65535;
+                for (let i = 0; i < posAttr.length; i += 3) {
+                    const v = Math.min(intAttr[i / 3] * invMax, 1);
+                    colors[i] = v;
+                    colors[i + 1] = v;
+                    colors[i + 2] = v;
+                }
             }
 
+            // Create geometry with optimizations
             const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            if(colors) geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const positionAttribute = new THREE.BufferAttribute(positions, 3);
+            positionAttribute.setUsage(THREE.StaticDrawUsage); // Hint: won't change
+            geometry.setAttribute('position', positionAttribute);
+            
+            if (colors) {
+                const colorAttribute = new THREE.BufferAttribute(colors, 3);
+                colorAttribute.setUsage(THREE.StaticDrawUsage);
+                geometry.setAttribute('color', colorAttribute);
+            }
+            
+            // Compute bounds for frustum culling
             geometry.computeBoundingBox();
+            geometry.computeBoundingSphere();
 
+            // Optimized material
             const material = new THREE.PointsMaterial({ 
                 size: 0.033, 
                 vertexColors: !!colors, 
                 color: 0xffffff,
+                fog: true,
+                sizeAttenuation: true,
             });
 
             const points = new THREE.Points(geometry, material);
+            points.frustumCulled = true; // Enable frustum culling
             scene.add(points);
+            
+            // Clear loading indicator
+            DOM.loadingIndicator.classList.remove('visible');
+            
+            console.log(`Loaded ${numPoints.toLocaleString()} points`);
 
-        } catch(err) { console.error(err); }
+        } catch (err) { 
+            console.error('Failed to load point cloud:', err);
+            DOM.loadingIndicator.textContent = 'LOAD ERROR';
+        }
     }
 
-    // GAME LOOP
-    function animate() {
+    // =========================================================================
+    // 🔄 ANIMATION LOOP
+    // =========================================================================
+    
+    // Cached values for UI update throttling
+    let cachedProgress = -1;
+    
+    function animate(time) {
         requestAnimationFrame(animate);
-
-        const time = performance.now();
-        const delta = (time - prevTime) / 1000;
+        
+        // Delta time calculation
+        if (prevTime === 0) prevTime = time;
+        const delta = Math.min((time - prevTime) * 0.001, 0.1); // Cap delta to prevent huge jumps
         prevTime = time;
 
-        // 1. POSITION (Rail)
+        // 1. POSITION (Rail movement)
         let speed = 0;
-        if (moveF) speed += SETTINGS.walkSpeed;
-        if (moveB) speed -= SETTINGS.walkSpeed;
+        if (moveFlags & MOVE_FORWARD) speed += SETTINGS.walkSpeed;
+        if (moveFlags & MOVE_BACKWARD) speed -= SETTINGS.walkSpeed;
         speed += joyMove * SETTINGS.walkSpeed;
 
-        const progressStep = (speed * delta) / totalRailLength;
-        railProgress += progressStep;
-        railProgress = Math.max(0, Math.min(1, railProgress));
+        if (speed !== 0) {
+            const progressStep = speed * delta * invRailLength;
+            railProgress += progressStep;
+            
+            // Clamp with branchless min/max
+            railProgress = railProgress < 0 ? 0 : railProgress > 1 ? 1 : railProgress;
+        }
 
-        const targetPos = railCurve.getPointAt(railProgress);
-        camera.position.copy(targetPos);
+        // Use fast cached curve lookup
+        getCurvePointFast(railProgress, _targetPos);
+        camera.position.copy(_targetPos);
         
         // 2. ROTATION (Keys/Joystick Yaw + Pitch)
-        // Mouse is handled in event listener
         let yawAmount = 0;
-        if (turnL) yawAmount += SETTINGS.keyTurnSpeed * delta;
-        if (turnR) yawAmount -= SETTINGS.keyTurnSpeed * delta;
+        if (moveFlags & TURN_LEFT) yawAmount += SETTINGS.keyTurnSpeed * delta;
+        if (moveFlags & TURN_RIGHT) yawAmount -= SETTINGS.keyTurnSpeed * delta;
         yawAmount -= joyLookX * SETTINGS.touchTurnSpeed * delta;
 
-        if(yawAmount !== 0) camera.rotateOnWorldAxis(WORLD_UP, yawAmount);
+        if (yawAmount !== 0) {
+            camera.rotateOnWorldAxis(WORLD_UP, yawAmount);
+        }
 
         const pitchAmount = joyLookY * SETTINGS.touchTurnSpeed * delta;
-        if(pitchAmount !== 0) camera.rotateX(pitchAmount); 
+        if (pitchAmount !== 0) {
+            camera.rotateX(pitchAmount);
+        }
 
-        // 3. UI
-        uiBar.style.width = (railProgress * 100) + '%';
+        // 3. UI UPDATES (Throttled)
+        // Progress bar - GPU accelerated transform
+        if (railProgress !== cachedProgress) {
+            DOM.progressBar.style.transform = `scaleX(${railProgress})`;
+            cachedProgress = railProgress;
+        }
         
-        calUI.innerHTML = 
-            `<strong>CALIBRATION DATA</strong>\n` +
-            `POS X: ${camera.position.x.toFixed(2)}\n` +
-            `POS Y: ${camera.position.y.toFixed(2)}\n` +
-            `POS Z: ${camera.position.z.toFixed(2)}\n` +
-            `----------------\n` +
-            `ROT X: ${camera.rotation.x.toFixed(2)}\n` +
-            `ROT Y: ${camera.rotation.y.toFixed(2)}\n` +
-            `ORDER: ${camera.rotation.order}\n` +
-            `PATH: ${(railProgress*100).toFixed(1)}%`;
+        // Calibration UI - throttled to reduce reflows
+        if (time - lastUIUpdate > SETTINGS.uiUpdateInterval) {
+            lastUIUpdate = time;
+            DOM.calPx.textContent = camera.position.x.toFixed(2);
+            DOM.calPy.textContent = camera.position.y.toFixed(2);
+            DOM.calPz.textContent = camera.position.z.toFixed(2);
+            DOM.calRx.textContent = camera.rotation.x.toFixed(2);
+            DOM.calRy.textContent = camera.rotation.y.toFixed(2);
+            DOM.calPath.textContent = (railProgress * 100).toFixed(1);
+        }
 
+        // 4. RENDER
         renderer.render(scene, camera);
     }
 
+    // =========================================================================
+    // 🚀 INITIALIZATION
+    // =========================================================================
+    
     init();
-    animate();
+    requestAnimationFrame(animate);
 
-    window.addEventListener('resize', () => {
-        camera.aspect = window.innerWidth/window.innerHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    });
   </script>
 </body>
 </html>
