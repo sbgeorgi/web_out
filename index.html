@@ -42,12 +42,83 @@
     #zone-left { left: 40px; }
     #zone-right { right: 40px; }
 
-    /* Hide instructions on small screens */
-    #desktop-hint {
-        position: fixed; bottom: 20px; width: 100%; text-align: center; color: #666; font-size: 10px; pointer-events: none;
+    /* CALIBRATION UI */
+    #calibration-ui {
+        position: fixed; top: 10px; right: 10px; 
+        color: #00e5ff; font-family: monospace; font-size: 11px; 
+        background: rgba(0,0,0,0.7); padding: 10px; border-radius: 4px;
+        pointer-events: none; z-index: 40; text-align: right;
+        white-space: pre-wrap;
     }
+
+    /* ========================================= */
+    /* ⌨️ CONTROLS VISUALIZER (NEW) */
+    /* ========================================= */
+    #controls-widget {
+        position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+        display: flex; gap: 40px; align-items: center;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(5px);
+        padding: 15px 30px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.1);
+        pointer-events: none;
+        z-index: 60;
+        transition: opacity 0.5s;
+    }
+
+    .control-group {
+        display: flex; flex-direction: column; align-items: center; gap: 8px;
+    }
+
+    .keys-container {
+        display: grid;
+        grid-template-columns: repeat(3, 40px);
+        gap: 5px;
+    }
+    
+    .key {
+        width: 40px; height: 40px;
+        border: 2px solid rgba(255,255,255,0.2);
+        border-radius: 8px;
+        color: rgba(255,255,255,0.5);
+        display: flex; justify-content: center; align-items: center;
+        font-weight: 700; font-size: 14px;
+        transition: all 0.1s ease;
+    }
+    
+    /* Active State (When pressed) */
+    .key.active {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #000;
+        box-shadow: 0 0 15px var(--accent);
+        transform: translateY(2px);
+    }
+
+    /* Spacer for WASD Layout */
+    .key-spacer { width: 40px; height: 40px; }
+
+    /* Mouse Icon */
+    .mouse-icon {
+        width: 32px; height: 48px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-radius: 16px;
+        position: relative;
+    }
+    .mouse-wheel {
+        width: 4px; height: 8px; background: var(--accent);
+        position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+        border-radius: 2px;
+    }
+
+    .widget-label {
+        font-size: 10px; letter-spacing: 2px; color: rgba(255,255,255,0.4); text-transform: uppercase;
+    }
+
+    /* Hide Controls Widget on Mobile */
     @media (max-width: 768px) {
-        #desktop-hint { display: none; }
+        #controls-widget { display: none; }
         h1 { font-size: 32px; }
         #zone-left { left: 20px; bottom: 20px; }
         #zone-right { right: 20px; bottom: 20px; }
@@ -69,6 +140,9 @@
 </head>
 
 <body>
+  <!-- CALIBRATION UI -->
+  <div id="calibration-ui">LOADING STATS...</div>
+
   <div id="app"></div>
 
   <div id="overlay">
@@ -81,7 +155,35 @@
     <div id="progress-bg"><div id="progress-bar"></div></div>
   </div>
 
-  <div id="desktop-hint">WASD to Move • ARROWS to Look</div>
+  <!-- BEAUTIFUL CONTROLS WIDGET -->
+  <div id="controls-widget">
+      <!-- WASD Group -->
+      <div class="control-group">
+          <div class="keys-container">
+              <div class="key-spacer"></div>
+              <div id="ui-key-w" class="key">W</div>
+              <div class="key-spacer"></div>
+              
+              <div id="ui-key-a" class="key">A</div>
+              <div id="ui-key-s" class="key">S</div>
+              <div id="ui-key-d" class="key">D</div>
+          </div>
+          <div class="widget-label">Move</div>
+      </div>
+
+      <!-- Divider -->
+      <div style="width: 1px; height: 50px; background: rgba(255,255,255,0.1);"></div>
+
+      <!-- Mouse Group -->
+      <div class="control-group">
+          <div style="height: 40px; display: flex; align-items: center;">
+            <div class="mouse-icon"><div class="mouse-wheel"></div></div>
+          </div>
+          <!-- Spacer to align text with keys -->
+          <div style="height: 40px; display: none;"></div> 
+          <div class="widget-label">Look</div>
+      </div>
+  </div>
 
   <!-- Joystick Containers -->
   <div id="zone-left" class="joystick-zone"></div>
@@ -89,7 +191,6 @@
 
   <script type="module">
     import * as THREE from 'three';
-    import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
     import { load } from 'https://cdn.jsdelivr.net/npm/@loaders.gl/core@4.3.3/+esm';
     import { LASLoader } from 'https://cdn.jsdelivr.net/npm/@loaders.gl/las@4.3.3/+esm';
 
@@ -99,11 +200,11 @@
 
     const SETTINGS = {
         startPos: new THREE.Vector3(-25.72, 25.83, 0.64),
-        startLookAt: new THREE.Vector3(-24.83, 35.57, -1.45),
         
         walkSpeed: 2.5,  
-        keyTurnSpeed: 1.5, // Speed for A/D/Arrows
-        touchTurnSpeed: 2.0, // Speed for Joystick
+        keyTurnSpeed: 1.5,   
+        mouseSensitivity: 0.002, 
+        touchTurnSpeed: 2.0, 
 
         fileUrl: './cloud_web.laz',
         metaUrl: './cloud_web.meta.json'
@@ -179,20 +280,33 @@
 
     // VARIABLES
     let moveF=false, moveB=false, turnL=false, turnR=false;
-    // Joystick Variables
-    let joyMove = 0; 
-    let joyLookX = 0;
-    let joyLookY = 0;
+    let joyMove = 0, joyLookX = 0, joyLookY = 0;
     
     let railProgress = 0; 
     let railCurve = null;
     let totalRailLength = 0;
     let prevTime = performance.now();
     let centerOffset = new THREE.Vector3();
+    const WORLD_UP = new THREE.Vector3(0, 0, 1); 
 
     // DOM
     const uiBar = document.getElementById('progress-bar');
     const hud = document.getElementById('hud');
+    const calUI = document.getElementById('calibration-ui');
+    const startBtn = document.getElementById('startBtn');
+    const overlay = document.getElementById('overlay');
+    
+    // UI KEYS
+    const keyEls = {
+        'KeyW': document.getElementById('ui-key-w'),
+        'KeyA': document.getElementById('ui-key-a'),
+        'KeyS': document.getElementById('ui-key-s'),
+        'KeyD': document.getElementById('ui-key-d')
+    };
+    // Map Arrows to same keys for visual feedback
+    const keyMap = {
+        'ArrowUp': 'KeyW', 'ArrowLeft': 'KeyA', 'ArrowDown': 'KeyS', 'ArrowRight': 'KeyD'
+    };
 
     // SCENE
     const scene = new THREE.Scene();
@@ -204,11 +318,6 @@
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     document.getElementById('app').appendChild(renderer.domElement);
-
-    // CONTROLS (Desktop Mouse)
-    const controls = new PointerLockControls(camera, document.body);
-    const startBtn = document.getElementById('startBtn');
-    const overlay = document.getElementById('overlay');
 
     // --- JOYSTICK SETUP ---
     const mgrLeft = nipplejs.create({
@@ -224,13 +333,9 @@
         color: '#00e5ff'
     });
 
-    // Left Stick (Move)
-    mgrLeft.on('move', (evt, data) => {
-        joyMove = Math.sin(data.angle.radian) * (data.distance / 50); 
-    });
+    mgrLeft.on('move', (evt, data) => { joyMove = Math.sin(data.angle.radian) * (data.distance / 50); });
     mgrLeft.on('end', () => { joyMove = 0; });
 
-    // Right Stick (Look)
     mgrRight.on('move', (evt, data) => {
         joyLookX = Math.cos(data.angle.radian) * (data.distance / 50);
         joyLookY = Math.sin(data.angle.radian) * (data.distance / 50);
@@ -238,12 +343,21 @@
     mgrRight.on('end', () => { joyLookX = 0; joyLookY = 0; });
 
 
-    // START
+    // =========================================================================
+    // 🖱️ CONTROLS
+    // =========================================================================
+    
     startBtn.addEventListener('click', () => {
-        try { controls.lock(); } catch(e) {}
+        document.body.requestPointerLock();
         overlay.style.opacity = '0';
         setTimeout(() => overlay.style.display = 'none', 500);
         hud.style.opacity = '1';
+    });
+
+    document.addEventListener('mousemove', (event) => {
+        if (document.pointerLockElement !== document.body) return;
+        camera.rotateOnWorldAxis(WORLD_UP, -event.movementX * SETTINGS.mouseSensitivity);
+        camera.rotateX(-event.movementY * SETTINGS.mouseSensitivity);
     });
 
     // INIT PATH
@@ -252,17 +366,28 @@
     railCurve.tension = 0.5;
     totalRailLength = railCurve.getLength();
 
+    // Init Camera
     const p0 = railCurve.getPointAt(0);
     camera.position.copy(p0);
-    camera.lookAt(SETTINGS.startLookAt);
+    camera.rotation.order = 'YXZ'; 
+    camera.rotation.set(-1.49, 3.13, 0);
 
-    // KEYBOARD
+    // KEYBOARD LOGIC & VISUALS
     const onKey = (e, active) => {
+        // Logic
         switch(e.code) {
             case 'KeyW': case 'ArrowUp': moveF = active; break;
             case 'KeyS': case 'ArrowDown': moveB = active; break;
             case 'KeyA': case 'ArrowLeft': turnL = active; break;
             case 'KeyD': case 'ArrowRight': turnR = active; break;
+        }
+
+        // Visuals
+        let id = e.code;
+        if(keyMap[id]) id = keyMap[id]; // Map arrows to letters
+        if(keyEls[id]) {
+            if(active) keyEls[id].classList.add('active');
+            else keyEls[id].classList.remove('active');
         }
     };
     document.addEventListener('keydown', (e) => onKey(e, true));
@@ -345,23 +470,32 @@
         const targetPos = railCurve.getPointAt(railProgress);
         camera.position.copy(targetPos);
         
-        // 2. ROTATION (Keys + Joystick)
-        // We use controls.getObject().rotation to access the camera Wrapper cleanly
-        // This prevents the "breakage" you saw earlier.
-        const camObj = controls.getObject();
-        
-        // Yaw (Left/Right)
-        if (turnL) camObj.rotation.y += SETTINGS.keyTurnSpeed * delta;
-        if (turnR) camObj.rotation.y -= SETTINGS.keyTurnSpeed * delta;
-        camObj.rotation.y -= joyLookX * SETTINGS.touchTurnSpeed * delta; // Joystick X
+        // 2. ROTATION (Keys/Joystick Yaw + Pitch)
+        // Mouse is handled in event listener
+        let yawAmount = 0;
+        if (turnL) yawAmount += SETTINGS.keyTurnSpeed * delta;
+        if (turnR) yawAmount -= SETTINGS.keyTurnSpeed * delta;
+        yawAmount -= joyLookX * SETTINGS.touchTurnSpeed * delta;
 
-        // Pitch (Up/Down) - Only for Joystick (Mouse does this natively)
-        camObj.rotation.x += joyLookY * SETTINGS.touchTurnSpeed * delta;
-        // Clamp pitch to prevent flipping
-        camObj.rotation.x = Math.max(-1.5, Math.min(1.5, camObj.rotation.x));
+        if(yawAmount !== 0) camera.rotateOnWorldAxis(WORLD_UP, yawAmount);
+
+        const pitchAmount = joyLookY * SETTINGS.touchTurnSpeed * delta;
+        if(pitchAmount !== 0) camera.rotateX(pitchAmount); 
 
         // 3. UI
         uiBar.style.width = (railProgress * 100) + '%';
+        
+        calUI.innerHTML = 
+            `<strong>CALIBRATION DATA</strong>\n` +
+            `POS X: ${camera.position.x.toFixed(2)}\n` +
+            `POS Y: ${camera.position.y.toFixed(2)}\n` +
+            `POS Z: ${camera.position.z.toFixed(2)}\n` +
+            `----------------\n` +
+            `ROT X: ${camera.rotation.x.toFixed(2)}\n` +
+            `ROT Y: ${camera.rotation.y.toFixed(2)}\n` +
+            `ORDER: ${camera.rotation.order}\n` +
+            `PATH: ${(railProgress*100).toFixed(1)}%`;
+
         renderer.render(scene, camera);
     }
 
