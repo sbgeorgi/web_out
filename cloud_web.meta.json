@@ -1,11 +1,14 @@
 {
   "source": "cloud_0.e57",
   "output": "cloud_web.laz",
-  "voxel": 0.025,
-  "sample_method": "voxel",
-  "points": 8818363,
-  "file_size_mb": 44.89,
-  "points_per_mb": 196463,
+  "preset": "webultra",
+  "two_pass": true,
+  "keep_rgb": true,
+  "voxel": 0.02,
+  "sample_method": "voxel_fast_center",
+  "points": 12719912,
+  "file_size_mb": 40.33,
+  "points_per_mb": 315384.02,
   "bounds": {
     "min": [
       -56.33,
@@ -14,21 +17,39 @@
     ],
     "max": [
       18.17,
-      52.77,
+      52.76,
       16.51
     ]
   },
   "origin": [
     -19.08,
-    21.92,
-    5.6
+    21.91,
+    5.600000000000001
   ],
-  "radius": 49.59,
-  "preset": "quality",
+  "radius": 49.58137856090732,
   "optimizations": {
-    "spatial_sort": true,
-    "outlier_removal": true,
+    "outliers_enabled": true,
+    "outlier_mode": "radius",
+    "outlier_radius": 0.05,
+    "outlier_min_k": 3,
+    "outlier_mean_k": null,
+    "outlier_multiplier": null,
+    "morton_sort": true,
+    "coord_scale": 0.002,
     "auto_offset": true,
-    "coord_scale": 0.001
+    "offset_xyz_used": [
+      -19.08,
+      21.91,
+      5.600000000000001
+    ],
+    "outlier_classify_supported": false
+  },
+  "compression": {
+    "laz_version": "1.2",
+    "method": "laszip",
+    "color_depth_detected": 8,
+    "quantize_colors_applied": false,
+    "quantize_intensity": true,
+    "zero_unused_dims": true
   }
 }
